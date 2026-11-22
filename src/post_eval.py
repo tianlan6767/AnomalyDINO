@@ -159,12 +159,17 @@ def read_tiff(file_path_no_ext, exts=('.tif', '.tiff', '.TIF', '.TIFF')):
     """
     # Get all file paths that exist
     file_paths = []
+    seen = set()
 
     for ext in exts:
         # Make sure the file path does not already end with a tiff extension.
         assert not file_path_no_ext.endswith(ext)
         file_path = file_path_no_ext + ext
+        key = os.path.normcase(os.path.abspath(file_path))
+        if key in seen:
+            continue
         if os.path.exists(file_path):
+            seen.add(key)
             file_paths.append(file_path)
 
     if len(file_paths) == 0:

@@ -11,6 +11,15 @@ import torch
 from src.utils import augment_image, dists2map, plot_ref_images, list_images
 from src.post_eval import mean_top1p
 
+
+def _imread_rgb(path):
+    """cv2.imread 打不开 UNC / 非 ASCII 路径。"""
+    data = np.fromfile(path, dtype=np.uint8)
+    bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise FileNotFoundError(path)
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
 def run_anomaly_detection(
         model,
         object_name,
@@ -86,7 +95,7 @@ def run_anomaly_detection(
         for img_ref_n in tqdm(img_ref_samples, desc="Building memory bank", leave=False):
             # load reference image...
             img_ref = f"{img_ref_folder}{img_ref_n}"
-            image_ref = cv2.cvtColor(cv2.imread(img_ref, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+            image_ref = _imread_rgb(img_ref)
 
             # augment reference image (if applicable)...
             if rotation:
@@ -147,7 +156,7 @@ def run_anomaly_detection(
                 image_test_path = f"{data_dir}/{img_test_nr}"
 
                 # Extract test features
-                image_test = cv2.cvtColor(cv2.imread(image_test_path, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+                image_test = _imread_rgb(image_test_path)
                 image_tensor2, grid_size2 = model.prepare_image(image_test)
                 features2 = model.extract_features(image_tensor2)
 
@@ -191,7 +200,15 @@ def run_anomaly_detection(
                 img_test_nr = os.path.splitext(img_test_nr)[0]
                 if save_tiffs:
                     anomaly_map = dists2map(d_masked, image_test.shape)
-                    tiff.imwrite(f"{plots_dir}/anomaly_maps/seed={seed}/{object_name}/test/{type_anomaly}/{img_test_nr}.tiff", anomaly_map)
+                    stem_dir = f"{plots_dir}/anomaly_maps/seed={seed}/{object_name}/test/{type_anomaly}"
+                    tiff.imwrite(f"{stem_dir}/{img_test_nr}.tiff", anomaly_map)
+                    heat = anomaly_map / (float(np.max(anomaly_map)) + 1e-8)
+                    pred = np.where(heat > 0.8, 255, 0).astype(np.uint8)
+                    cv2.imwrite(f"{stem_dir}/{img_test_nr}_pred_mask.png", pred)
+                    color = cv2.applyColorMap((heat * 255).astype(np.uint8), cv2.COLORMAP_JET)
+                    bgr = cv2.cvtColor(image_test, cv2.COLOR_RGB2BGR)
+                    blend = cv2.addWeighted(bgr, 0.55, color, 0.45, 0)
+                    cv2.imwrite(f"{stem_dir}/{img_test_nr}_heatmap.jpg", blend)
                 if save_patch_dists:
                     np.save(f"{plots_dir}/anomaly_maps/seed={seed}/{object_name}/test/{type_anomaly}/{img_test_nr}.npy", d_masked)
 
